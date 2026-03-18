@@ -16,6 +16,7 @@ from calm.tools.discovery import (
     list_discovery_methods,
     run_causal_discovery,
     get_graph_description,
+    get_metrics,
     visualize_graph,
     estimate_effect,
 )
@@ -24,13 +25,13 @@ from calm.tools.discovery import (
 TOOL_IMPLEMENTATIONS = {
     "load_data": (
         load_data,
-        "Load a dataset for causal discovery. Use a path to a CSV file, or a built-in name: 'sachs' (protein signaling), 'auto_mpg' (UCI Auto-MPG).",
+        "Load a dataset for causal discovery. Use a path to a CSV file, or a built-in name: 'sachs' (protein signaling), 'auto_mpg' (UCI Auto-MPG), 'simset' (simulated time series: x causes y, x causes z).",
         {
             "type": "object",
             "properties": {
                 "path_or_name": {
                     "type": "string",
-                    "description": "Path to CSV file or built-in name: sachs, auto_mpg",
+                    "description": "Path to CSV file or built-in name: sachs, auto_mpg, simset",
                 },
             },
             "required": ["path_or_name"],
@@ -59,6 +60,11 @@ TOOL_IMPLEMENTATIONS = {
     "get_graph_description": (
         get_graph_description,
         "Get a text description of the last discovered causal graph (nodes and graph in DOT format). Call after run_causal_discovery.",
+        {"type": "object", "properties": {}},
+    ),
+    "get_metrics": (
+        get_metrics,
+        "Compare the discovered graph to the ground-truth graph and return metrics (edge/arrow precision, recall, F1, Structural Hamming Distance). Only available when the dataset has known ground truth (e.g. simset). Call after run_causal_discovery. Use when the user asks for metrics or evaluation.",
         {"type": "object", "properties": {}},
     ),
     "visualize_graph": (
@@ -163,11 +169,11 @@ def run_agent(
     model = model or os.environ.get("CALM_LLM_MODEL", "gpt-4o-mini")
 
     system = """You are a causal discovery assistant. You help users:
-1. Load datasets (CSV or built-in like 'sachs', 'auto_mpg').
+1. Load datasets (CSV or built-in: 'sachs', 'auto_mpg', 'simset' — simset is simulated time series where x causes y and x causes z).
 2. Run causal discovery (PC, GES, FCI, or LiNGAM) and explain the results.
 3. Estimate causal effects when the user asks (e.g. effect of X on Y).
 
-Use the tools in order: load_data first if they have data, then list_discovery_methods or run_causal_discovery. If they want to see the graph as an image, call visualize_graph() after run_causal_discovery; it saves a PNG and opens it so the user sees it. If they want an effect estimate, run_causal_discovery with method "lingam" first if needed, then estimate_effect. Explain findings in plain language and mention assumptions (e.g. LiNGAM assumes linear non-Gaussian)."""
+Use the tools in order: load_data first if they have data, then list_discovery_methods or run_causal_discovery. If they want to see the graph as an image, call visualize_graph() after run_causal_discovery. For simset, if they ask for metrics or evaluation, call get_metrics() after discovery to show precision, recall, F1, and SHD vs the true graph (x→y, x→z). If they want an effect estimate, run_causal_discovery with method "lingam" first if needed, then estimate_effect. Explain findings in plain language and mention assumptions (e.g. LiNGAM assumes linear non-Gaussian)."""
 
     if previous_messages is not None:
         messages = previous_messages + [{"role": "user", "content": user_message}]

@@ -52,6 +52,7 @@ _current_labels: list[str] | None = None
 _current_graph_dot: str | None = None
 _current_method: str | None = None
 _current_edges: list[tuple[str, str, str]] | None = None  # (u, v, 'directed'|'undirected'|'bidirected')
+_true_edges: list[tuple[str, str]] | None = None  # ground-truth directed edges (only set for simset)
 
 
 def _graph_to_dot_lingam(adjacency_matrix: np.ndarray, labels: list[str]) -> str:
@@ -73,21 +74,37 @@ def _str_to_dot(s: str) -> str:
     return s
 
 
+def _generate_simset(n: int = 500, seed: int = 42) -> pd.DataFrame:
+    """
+    Simulated time series with 3 variables: x causes y, x causes z.
+    Structure: x -> y, x -> z (no direct y-z or z-y).
+    """
+    rng = np.random.default_rng(seed)
+    x = np.cumsum(rng.standard_normal(n)) * 0.1  # random walk scaled
+    y = np.zeros(n)
+    z = np.zeros(n)
+    for t in range(1, n):
+        y[t] = 0.5 * x[t] + 0.3 * y[t - 1] + 0.1 * rng.standard_normal()
+        z[t] = 0.4 * x[t] + 0.3 * z[t - 1] + 0.1 * rng.standard_normal()
+    return pd.DataFrame({"x": x, "y": y, "z": z})
+
+
 def load_data(path_or_name: str) -> dict[str, Any]:
     """
     Load a dataset for causal discovery.
 
     Args:
         path_or_name: Either a path to a CSV file, or a built-in name:
-                      'sachs' (protein signaling), 'auto_mpg' (sample from UCI Auto-MPG).
+                      'sachs' (protein signaling), 'auto_mpg' (UCI Auto-MPG), 'simset' (simulated: x causes y, x causes z).
 
     Returns:
         Summary with shape, columns, and sample.
     """
-    global _current_data, _current_labels, _current_graph_dot, _current_method, _current_edges
+    global _current_data, _current_labels, _current_graph_dot, _current_method, _current_edges, _true_edges
     _current_graph_dot = None
     _current_method = None
     _current_edges = None
+    _true_edges = None
 
     path_or_name = path_or_name.strip()
     if path_or_name.lower() == "sachs":
@@ -106,6 +123,10 @@ def load_data(path_or_name: str) -> dict[str, Any]:
         df = df.dropna().drop(columns=["model year", "origin", "car name"])
         _current_data = df
         _current_labels = list(df.columns)
+    elif path_or_name.lower() == "simset":
+        _current_data = _generate_simset()
+        _current_labels = ["x", "y", "z"]
+        _true_edges = [("x", "y"), ("x", "z")]  # ground truth for metrics
     else:
         p = Path(path_or_name)
         if not p.exists():
@@ -263,6 +284,67 @@ def get_graph_description() -> dict[str, Any]:
     }
 
 
+def get_metrics() -> dict[str, Any]:
+    """
+    Compare the discovered causal graph to the ground-truth graph and return metrics.
+    Only available when the loaded dataset has known ground truth (e.g. simset: x→y, x→z).
+    Call after run_causal_discovery.
+    """
+    global _current_edges, _true_edges, _current_method
+
+    if _true_edges is None:
+        return {
+            "ok": False,
+            "error": "No ground-truth graph for this dataset. Metrics are only available for 'simset' (true graph: x→y, x→z).",
+        }
+    if _current_edges is None:
+        return {"ok": False, "error": "No graph discovered yet. Run run_causal_discovery(method) first."}
+
+    true_set = set(_true_edges)
+    true_undirected = set((min(u, v), max(u, v)) for u, v in true_set)
+
+    discovered_directed = [(u, v) for u, v, t in _current_edges if t == "directed"]
+    discovered_undirected = set((min(u, v), max(u, v)) for u, v, t in _current_edges if t == "undirected")
+    discovered_pairs = set((min(u, v), max(u, v)) for u, v in discovered_directed) | discovered_undirected
+
+    # Edge metrics (edge present, direction ignored)
+    tp_edge = sum(1 for (u, v) in true_set if (min(u, v), max(u, v)) in discovered_pairs)
+    fp_edge = len(discovered_pairs) - tp_edge
+    edge_recall = tp_edge / len(true_set) if true_set else 0.0
+    edge_precision = tp_edge / len(discovered_pairs) if discovered_pairs else 0.0
+    edge_f1 = 2 * edge_precision * edge_recall / (edge_precision + edge_recall) if (edge_precision + edge_recall) > 0 else 0.0
+
+    # Arrow metrics (correct direction)
+    discovered_directed_set = set(discovered_directed)
+    tp_arrow = sum(1 for (u, v) in true_set if (u, v) in discovered_directed_set)
+    fp_arrow = len(discovered_directed) - tp_arrow
+    arrow_recall = tp_arrow / len(true_set) if true_set else 0.0
+    arrow_precision = tp_arrow / len(discovered_directed) if discovered_directed else 0.0
+    arrow_f1 = 2 * arrow_precision * arrow_recall / (arrow_precision + arrow_recall) if (arrow_precision + arrow_recall) > 0 else 0.0
+
+    # Structural Hamming Distance: missing + extra + reversed
+    missing = len(true_set) - tp_arrow
+    extra = fp_arrow
+    reversed_ = sum(1 for (u, v) in true_set if (v, u) in discovered_directed_set)
+    shd = missing + extra + reversed_
+
+    return {
+        "ok": True,
+        "true_graph": [f"{u}→{v}" for u, v in _true_edges],
+        "method": _current_method,
+        "metrics": {
+            "edge_precision": round(edge_precision, 4),
+            "edge_recall": round(edge_recall, 4),
+            "edge_f1": round(edge_f1, 4),
+            "arrow_precision": round(arrow_precision, 4),
+            "arrow_recall": round(arrow_recall, 4),
+            "arrow_f1": round(arrow_f1, 4),
+            "structural_hamming_distance": shd,
+        },
+        "interpretation": "Edge metrics ignore direction; arrow metrics require correct direction. SHD = missing + extra + reversed edges (lower is better).",
+    }
+
+
 def visualize_graph(save_path: str = "causal_graph.png") -> dict[str, Any]:
     """
     Draw the last discovered causal graph with NetworkX and save as a PNG.
@@ -324,32 +406,36 @@ def visualize_graph(save_path: str = "causal_graph.png") -> dict[str, Any]:
         ax.set_facecolor("#f8f9fa")
         fig.patch.set_facecolor("white")
 
+        # Node size (same value for nodes and edge trimming so arrows don't hide under nodes)
+        node_size = 2800
+
         # Draw undirected as simple lines (no arrows)
         nx.draw_networkx_edges(
             G, pos,
             edgelist=undirected_edges,
             edge_color="#6c757d", width=2, alpha=0.8, ax=ax,
-            connectionstyle="arc3,rad=0.1",
+            connectionstyle="arc3,rad=0.1", node_size=node_size,
         )
         # Draw bidirected (one arc per pair)
         nx.draw_networkx_edges(
             G, pos,
             edgelist=bidirected_edges,
             edge_color="#9b59b6", width=2, alpha=0.8, ax=ax,
-            connectionstyle="arc3,rad=0.2",
+            connectionstyle="arc3,rad=0.2", node_size=node_size,
         )
-        # Draw directed edges (arrows)
+        # Draw directed edges (arrows) — node_size shortens edges so arrowheads sit at node border
         nx.draw_networkx_edges(
             G, pos,
             edgelist=directed_edges,
             edge_color="#2c3e50", width=2.5, alpha=0.9, ax=ax,
             arrows=True, arrowsize=22, arrowstyle="-|>", connectionstyle="arc3,rad=0.1",
+            node_size=node_size,
         )
 
         # Nodes: soft gradient feel
         node_colors = ["#3498db"] * G.number_of_nodes()
         nx.draw_networkx_nodes(
-            G, pos, node_color=node_colors, node_size=2800,
+            G, pos, node_color=node_colors, node_size=node_size,
             alpha=0.95, edgecolors="#2c3e50", linewidths=2, ax=ax,
         )
         nx.draw_networkx_labels(

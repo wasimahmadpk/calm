@@ -78,10 +78,11 @@ print(reply)
 
 | Tool | Description |
 |------|-------------|
-| `load_data` | Load a CSV path or built-in dataset: `sachs`, `auto_mpg` |
+| `load_data` | Load a CSV path or built-in dataset: `sachs`, `auto_mpg`, `simset` (simulated: x→y, x→z) |
 | `list_discovery_methods` | List PC, GES, FCI, LiNGAM and when to use them |
 | `run_causal_discovery` | Run one of PC, GES, FCI, or LiNGAM on the current data |
 | `get_graph_description` | Return the last discovered graph (nodes, edges, DOT) |
+| `get_metrics` | Compare discovered vs ground-truth graph (edge/arrow precision, recall, F1, SHD). Only for **simset** (true: x→y, x→z). |
 | `visualize_graph` | Draw the causal graph with NetworkX (circular layout), save as PNG, and open it in your default viewer |
 | `estimate_effect` | Estimate causal effect of treatment on outcome (uses last graph) |
 
