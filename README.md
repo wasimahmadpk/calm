@@ -17,8 +17,11 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env              # then edit .env and set OPENAI_API_KEY=sk-...
 
-# Run
+# Run (single question)
 python run_agent.py "Load the sachs dataset and run PC causal discovery"
+
+# Or chat continuously (type 'quit' to exit)
+python run_agent.py --chat
 ```
 Or use the script: `chmod +x run_local.sh && ./run_local.sh "Load sachs and run PC"` (uses `.venv` if present).
 
@@ -48,12 +51,19 @@ python run_agent.py "Load sachs and run LiNGAM"
 
 ## Quick start
 
-**CLI**
+**CLI — single question**
 
 ```bash
 python run_agent.py "Load the sachs dataset and run PC causal discovery"
 python run_agent.py "Load sachs, run LiNGAM, and estimate the effect of pip2 on pkc"
 ```
+
+**CLI — interactive chat (keep talking until you type `quit` or `exit`)**
+
+```bash
+python run_agent.py --chat
+```
+Then type your questions; the agent keeps context (e.g. "Show me the graph", "What's the effect of X on Y?").
 
 **Python**
 
@@ -72,10 +82,12 @@ print(reply)
 | `list_discovery_methods` | List PC, GES, FCI, LiNGAM and when to use them |
 | `run_causal_discovery` | Run one of PC, GES, FCI, or LiNGAM on the current data |
 | `get_graph_description` | Return the last discovered graph (nodes, edges, DOT) |
+| `visualize_graph` | Draw the causal graph with NetworkX (circular layout), save as PNG, and open it in your default viewer |
 | `estimate_effect` | Estimate causal effect of treatment on outcome (uses last graph) |
 
 - **PC / GES / FCI**: constraint- or score-based; may return CPDAGs (undirected edges).
 - **LiNGAM**: linear non-Gaussian; returns a DAG — use this before asking for effect estimates.
+- **Graph**: Ask "show me the graph" after discovery; the image opens automatically (`causal_graph.png`).
 
 ## Project layout
 
@@ -86,7 +98,7 @@ calm/
     agent.py          # LLM agent (OpenAI tool calling)
     tools/
       __init__.py
-      discovery.py    # load_data, run_causal_discovery, estimate_effect
+      discovery.py    # load_data, run_causal_discovery, visualize_graph, estimate_effect
   requirements.txt
   run_agent.py       # CLI
   README.md
@@ -107,6 +119,7 @@ So you can use **OpenAI**, **Cursor (via proxy)**, or any **OpenAI-compatible** 
 
 - **causal-learn**: PC, GES, FCI, LiNGAM
 - **DoWhy**: effect estimation (backdoor adjustment)
+- **networkx** + **matplotlib**: causal graph visualization (circular layout)
 - **openai**: client (works with OpenAI and any OpenAI-compatible endpoint)
 
 ## License
