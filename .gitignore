@@ -43,4 +43,3 @@ Thumbs.db
 # Generated outputs
 causal_graph.png
 discovered_graph.png
-*.png
