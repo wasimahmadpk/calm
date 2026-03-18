@@ -1,0 +1,12 @@
+# Causal discovery & inference
+dowhy>=0.11
+causal-learn>=0.1.4
+networkx>=3.0
+pandas>=2.0
+numpy>=1.24
+
+# LLM agent
+openai>=1.0
+
+# Optional: env for API keys
+python-dotenv>=1.0
