@@ -9,10 +9,41 @@ cd calm
 pip install -r requirements.txt
 ```
 
-Set your OpenAI API key:
+**Run locally (recommended: use a venv to avoid NumPy conflicts with Anaconda):**
+```bash
+# One-time setup
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env              # then edit .env and set OPENAI_API_KEY=sk-...
+
+# Run
+python run_agent.py "Load the sachs dataset and run PC causal discovery"
+```
+Or use the script: `chmod +x run_local.sh && ./run_local.sh "Load sachs and run PC"` (uses `.venv` if present).
+
+**Keep your API key private (never in code or git):**
+
+1. Copy the example env file and add your key only in the local file:
+   ```bash
+   cp .env.example .env
+   # Edit .env and set: OPENAI_API_KEY=sk-your-actual-key
+   ```
+2. `.env` is gitignored—it will not be committed. Only you (and your code running locally) can read it.
+
+Alternatively, set the key in your shell: `export OPENAI_API_KEY=sk-...` (don’t paste keys in shared docs or chat).
+
+**If a key was ever exposed** (e.g. pasted in chat or committed), [rotate it immediately](https://platform.openai.com/api-keys) and use the new key only in `.env`.
+
+**Using Cursor subscription (OpenAI-compatible proxy)**  
+Cursor doesn’t expose a public chat API; use an OpenAI-compatible proxy that talks to Cursor’s models (e.g. [cursor-api-proxy](https://github.com/anyrobert/cursor-api-proxy)). Then point CALM at the proxy:
 
 ```bash
-export OPENAI_API_KEY=sk-...
+# Start the proxy (in another terminal), then:
+export CALM_LLM_BASE_URL=http://127.0.0.1:8765/v1
+export CURSOR_API_KEY=your-proxy-key   # if the proxy requires one
+export CALM_LLM_MODEL=default          # or a specific model ID from the proxy
+python run_agent.py "Load sachs and run LiNGAM"
 ```
 
 ## Quick start
@@ -61,11 +92,22 @@ calm/
   README.md
 ```
 
+## LLM / API options
+
+| Env / arg | Purpose |
+|-----------|--------|
+| `OPENAI_API_KEY` | API key for OpenAI (or for the proxy, if it uses one). |
+| `CALM_LLM_BASE_URL` | Use another OpenAI-compatible endpoint (e.g. Cursor proxy, local server). |
+| `CALM_LLM_MODEL` | Model ID (default: `gpt-4o-mini`). For Cursor proxy use `default` or the proxy’s model list. |
+| `CURSOR_API_KEY` | Alternative key env when using a Cursor proxy. |
+
+So you can use **OpenAI**, **Cursor (via proxy)**, or any **OpenAI-compatible** API (e.g. LiteLLM, local LLMs).
+
 ## Dependencies
 
 - **causal-learn**: PC, GES, FCI, LiNGAM
 - **DoWhy**: effect estimation (backdoor adjustment)
-- **OpenAI**: agent with function calling
+- **openai**: client (works with OpenAI and any OpenAI-compatible endpoint)
 
 ## License
 

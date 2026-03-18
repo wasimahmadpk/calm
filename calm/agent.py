@@ -101,22 +101,50 @@ def run_tool(name: str, arguments: dict) -> Any:
 def run_agent(
     user_message: str,
     *,
-    model: str = "gpt-4o-mini",
+    model: str | None = None,
     api_key: str | None = None,
+    base_url: str | None = None,
     max_turns: int = 15,
 ) -> tuple[str, list[dict]]:
     """
     Run the causal discovery agent: send the user message to the LLM and
     execute tool calls until the model returns a final answer.
 
+    Supports any OpenAI-compatible API (OpenAI, Cursor via proxy, local models, etc.).
+
+    Args:
+        user_message: The user's question or request.
+        model: Model ID (e.g. 'gpt-4o-mini', 'claude-4-sonnet'). Default from env or 'gpt-4o-mini'.
+        api_key: API key. Default from OPENAI_API_KEY or CURSOR_API_KEY env.
+        base_url: API base URL. If set (or CALM_LLM_BASE_URL env), use this instead of OpenAI.
+                 Example for Cursor proxy: http://127.0.0.1:8765/v1
+        max_turns: Max agent turns (tool call rounds).
+
     Returns:
         (final assistant message, full message history).
     """
     from openai import OpenAI
 
-    client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
-    if not client.api_key:
-        raise ValueError("Set OPENAI_API_KEY or pass api_key to run_agent.")
+    # Load .env from project root and cwd so the key is always found
+    try:
+        from dotenv import load_dotenv
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        load_dotenv(os.path.join(_root, ".env"))
+        load_dotenv()  # also from current working directory
+    except ImportError:
+        pass
+
+    base = base_url or os.environ.get("CALM_LLM_BASE_URL")
+    key = api_key or os.environ.get("OPENAI_API_KEY") or os.environ.get("CURSOR_API_KEY")
+    if not key and not base:
+        raise ValueError(
+            "No API key found. Create a .env file in the project folder with:\n"
+            "  OPENAI_API_KEY=sk-your-key\n"
+            "Or run: cp .env.example .env   then edit .env and add your key (no quotes, no #)."
+        )
+    # Proxies (e.g. Cursor) often accept a placeholder key when they use their own auth
+    client = OpenAI(api_key=key or "cursor-proxy", base_url=base or None)
+    model = model or os.environ.get("CALM_LLM_MODEL", "gpt-4o-mini")
 
     system = """You are a causal discovery assistant. You help users:
 1. Load datasets (CSV or built-in like 'sachs', 'auto_mpg').

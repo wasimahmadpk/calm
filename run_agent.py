@@ -6,10 +6,20 @@ Usage:
   python run_agent.py "Load the sachs dataset and run PC causal discovery"
   python run_agent.py "What is the causal effect of pip2 on pkc?"   # will load sachs, run discovery, then estimate
 
-Set OPENAI_API_KEY in the environment.
+API key: put OPENAI_API_KEY in a .env file in this directory (see .env.example).
+Never commit .env or share your key.
 """
 
+import os
 import sys
+
+# Load .env from the same folder as this script (project root)
+try:
+    from dotenv import load_dotenv
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    load_dotenv(os.path.join(_script_dir, ".env"))
+except ImportError:
+    pass
 
 from calm.agent import run_agent
 
