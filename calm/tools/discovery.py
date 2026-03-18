@@ -8,6 +8,7 @@ load_data -> run_causal_discovery -> estimate_effect.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -316,11 +317,8 @@ def visualize_graph(save_path: str = "causal_graph.png") -> dict[str, Any]:
         p = p.with_suffix(".png")
         save_path = str(p)
 
-        # Layout: use shell or hierarchical for DAGs, spring for general
-        if len(undirected_edges) == 0 and len(bidirected_edges) == 0 and nx.is_directed_acyclic_graph(G):
-            pos = nx.spring_layout(G, k=2.0, seed=42, iterations=50)
-        else:
-            pos = nx.spring_layout(G, k=1.5, seed=42, iterations=80)
+        # Circular layout: nodes on a circle
+        pos = nx.circular_layout(G)
 
         fig, ax = plt.subplots(figsize=(12, 8))
         ax.set_facecolor("#f8f9fa")
@@ -365,7 +363,20 @@ def visualize_graph(save_path: str = "causal_graph.png") -> dict[str, Any]:
         plt.savefig(save_path, dpi=150, bbox_inches="tight", facecolor="white")
         plt.close()
 
-        return {"ok": True, "path": save_path, "message": f"Graph saved to {save_path}"}
+        # Open the image with the system default viewer so the user sees it
+        import subprocess
+        try:
+            if hasattr(os, "startfile"):  # Windows
+                os.startfile(save_path)
+            else:
+                try:
+                    subprocess.run(["open", save_path], check=True, capture_output=True, timeout=2)  # macOS
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    subprocess.run(["xdg-open", save_path], capture_output=True, timeout=2)  # Linux
+        except Exception:
+            pass
+
+        return {"ok": True, "path": save_path, "message": f"Graph saved and opened: {save_path}"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

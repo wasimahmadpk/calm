@@ -119,6 +119,7 @@ def run_agent(
     api_key: str | None = None,
     base_url: str | None = None,
     max_turns: int = 15,
+    previous_messages: list[dict] | None = None,
 ) -> tuple[str, list[dict]]:
     """
     Run the causal discovery agent: send the user message to the LLM and
@@ -133,6 +134,7 @@ def run_agent(
         base_url: API base URL. If set (or CALM_LLM_BASE_URL env), use this instead of OpenAI.
                  Example for Cursor proxy: http://127.0.0.1:8765/v1
         max_turns: Max agent turns (tool call rounds).
+        previous_messages: When set, continue the conversation (append user_message and run). Use the returned messages for the next turn.
 
     Returns:
         (final assistant message, full message history).
@@ -165,12 +167,15 @@ def run_agent(
 2. Run causal discovery (PC, GES, FCI, or LiNGAM) and explain the results.
 3. Estimate causal effects when the user asks (e.g. effect of X on Y).
 
-Use the tools in order: load_data first if they have data, then list_discovery_methods or run_causal_discovery. If they want to see the graph as an image, call visualize_graph() after run_causal_discovery; it saves a PNG (e.g. causal_graph.png). If they want an effect estimate, run_causal_discovery with method "lingam" first if needed, then estimate_effect. Explain findings in plain language and mention assumptions (e.g. LiNGAM assumes linear non-Gaussian)."""
+Use the tools in order: load_data first if they have data, then list_discovery_methods or run_causal_discovery. If they want to see the graph as an image, call visualize_graph() after run_causal_discovery; it saves a PNG and opens it so the user sees it. If they want an effect estimate, run_causal_discovery with method "lingam" first if needed, then estimate_effect. Explain findings in plain language and mention assumptions (e.g. LiNGAM assumes linear non-Gaussian)."""
 
-    messages: list[dict] = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user_message},
-    ]
+    if previous_messages is not None:
+        messages = previous_messages + [{"role": "user", "content": user_message}]
+    else:
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_message},
+        ]
     tools_spec = build_openai_tools()
 
     for _ in range(max_turns):
