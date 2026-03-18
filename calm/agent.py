@@ -16,6 +16,7 @@ from calm.tools.discovery import (
     list_discovery_methods,
     run_causal_discovery,
     get_graph_description,
+    visualize_graph,
     estimate_effect,
 )
 
@@ -59,6 +60,19 @@ TOOL_IMPLEMENTATIONS = {
         get_graph_description,
         "Get a text description of the last discovered causal graph (nodes and graph in DOT format). Call after run_causal_discovery.",
         {"type": "object", "properties": {}},
+    ),
+    "visualize_graph": (
+        visualize_graph,
+        "Draw the last discovered causal graph as a beautiful PNG image and save it. Call after run_causal_discovery. Use when the user wants to see the graph or a visualization.",
+        {
+            "type": "object",
+            "properties": {
+                "save_path": {
+                    "type": "string",
+                    "description": "Filename or path for the image (default: causal_graph.png)",
+                },
+            },
+        },
     ),
     "estimate_effect": (
         estimate_effect,
@@ -151,7 +165,7 @@ def run_agent(
 2. Run causal discovery (PC, GES, FCI, or LiNGAM) and explain the results.
 3. Estimate causal effects when the user asks (e.g. effect of X on Y).
 
-Use the tools in order: load_data first if they have data, then list_discovery_methods or run_causal_discovery. If they want an effect estimate, run_causal_discovery with method "lingam" first if needed, then estimate_effect. Explain findings in plain language and mention assumptions (e.g. LiNGAM assumes linear non-Gaussian)."""
+Use the tools in order: load_data first if they have data, then list_discovery_methods or run_causal_discovery. If they want to see the graph as an image, call visualize_graph() after run_causal_discovery; it saves a PNG (e.g. causal_graph.png). If they want an effect estimate, run_causal_discovery with method "lingam" first if needed, then estimate_effect. Explain findings in plain language and mention assumptions (e.g. LiNGAM assumes linear non-Gaussian)."""
 
     messages: list[dict] = [
         {"role": "system", "content": system},

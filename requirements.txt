@@ -2,6 +2,7 @@
 dowhy>=0.11
 causal-learn>=0.1.4
 networkx>=3.0
+matplotlib>=3.5
 pandas>=2.0
 numpy>=1.24,<2
 

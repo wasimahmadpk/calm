@@ -50,6 +50,7 @@ _current_data: pd.DataFrame | None = None
 _current_labels: list[str] | None = None
 _current_graph_dot: str | None = None
 _current_method: str | None = None
+_current_edges: list[tuple[str, str, str]] | None = None  # (u, v, 'directed'|'undirected'|'bidirected')
 
 
 def _graph_to_dot_lingam(adjacency_matrix: np.ndarray, labels: list[str]) -> str:
@@ -82,9 +83,10 @@ def load_data(path_or_name: str) -> dict[str, Any]:
     Returns:
         Summary with shape, columns, and sample.
     """
-    global _current_data, _current_labels, _current_graph_dot, _current_method
+    global _current_data, _current_labels, _current_graph_dot, _current_method, _current_edges
     _current_graph_dot = None
     _current_method = None
+    _current_edges = None
 
     path_or_name = path_or_name.strip()
     if path_or_name.lower() == "sachs":
@@ -146,7 +148,7 @@ def run_causal_discovery(method: str) -> dict[str, Any]:
     Returns:
         Summary of the discovered graph (edges, method used).
     """
-    global _current_data, _current_labels, _current_graph_dot, _current_method
+    global _current_data, _current_labels, _current_graph_dot, _current_method, _current_edges
 
     if _current_data is None or _current_labels is None:
         return {"ok": False, "error": "No data loaded. Call load_data first."}
@@ -162,25 +164,26 @@ def run_causal_discovery(method: str) -> dict[str, Any]:
             pyd = cl["GraphUtils"].to_pydot(cg.G, labels=labels)
             graph_str = pyd.to_string()
             _current_graph_dot = _str_to_dot(graph_str)
-            edges = _describe_causal_learn_graph(cg.G, labels)
+            edges, _current_edges = _causal_learn_edges(cg.G, labels)
         elif method == "ges":
             record = cl["ges"](data)
             pyd = cl["GraphUtils"].to_pydot(record["G"], labels=labels)
             graph_str = pyd.to_string()
             _current_graph_dot = _str_to_dot(graph_str)
-            edges = _describe_causal_learn_graph(record["G"], labels)
+            edges, _current_edges = _causal_learn_edges(record["G"], labels)
         elif method == "fci":
             from causallearn.search.ConstraintBased.FCI import fci
             cg, _ = fci(data, alpha=0.05)
             pyd = cl["GraphUtils"].to_pydot(cg.G, labels=labels)
             graph_str = pyd.to_string()
             _current_graph_dot = _str_to_dot(graph_str)
-            edges = _describe_causal_learn_graph(cg.G, labels)
+            edges, _current_edges = _causal_learn_edges(cg.G, labels)
         elif method == "lingam":
             model = cl["lingam"].ICALiNGAM()
             model.fit(data)
             _current_graph_dot = _graph_to_dot_lingam(model.adjacency_matrix_, labels)
             edges = _describe_lingam_graph(model.adjacency_matrix_, labels)
+            _current_edges = [(labels[i], labels[j], "directed") for i in range(len(labels)) for j in range(len(labels)) if abs(model.adjacency_matrix_[j, i]) > 1e-6]
         else:
             return {"ok": False, "error": f"Unknown method: {method}. Use pc, ges, fci, or lingam."}
 
@@ -196,27 +199,36 @@ def run_causal_discovery(method: str) -> dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
-def _describe_causal_learn_graph(G, labels: list[str]) -> list[str]:
-    """Describe causal-learn graph edges for LLM."""
+def _causal_learn_edges(G, labels: list[str]) -> tuple[list[str], list[tuple[str, str, str]]]:
+    """Return (text edges for LLM, structured edges for visualization)."""
     n = G.get_num_nodes()
-    edges = []
+    text_edges = []
+    struct_edges: list[tuple[str, str, str]] = []
     for i in range(n):
         for j in range(n):
             if i == j:
                 continue
-            # causal-learn: -1 = tail, 1 = arrowhead, 2 = circle
-            # graph[i,j] describes edge from i to j: (i,j) entry
             val_ij = G.graph[i, j]
             val_ji = G.graph[j, i]
             if val_ij == 1 and val_ji == -1:
-                edges.append(f"{labels[i]} -> {labels[j]}")
+                text_edges.append(f"{labels[i]} -> {labels[j]}")
+                struct_edges.append((labels[i], labels[j], "directed"))
             elif val_ij == -1 and val_ji == 1:
-                edges.append(f"{labels[j]} -> {labels[i]}")
+                text_edges.append(f"{labels[j]} -> {labels[i]}")
+                struct_edges.append((labels[j], labels[i], "directed"))
             elif val_ij == -1 and val_ji == -1:
-                edges.append(f"{labels[i]} - {labels[j]} (undirected)")
+                text_edges.append(f"{labels[i]} - {labels[j]} (undirected)")
+                struct_edges.append((labels[i], labels[j], "undirected"))
             elif val_ij == 1 and val_ji == 1:
-                edges.append(f"{labels[i]} <-> {labels[j]} (bidirected)")
-    return edges
+                text_edges.append(f"{labels[i]} <-> {labels[j]} (bidirected)")
+                struct_edges.append((labels[i], labels[j], "bidirected"))
+    return text_edges, struct_edges
+
+
+def _describe_causal_learn_graph(G, labels: list[str]) -> list[str]:
+    """Describe causal-learn graph edges for LLM."""
+    text_edges, _ = _causal_learn_edges(G, labels)
+    return text_edges
 
 
 def _describe_lingam_graph(adj: np.ndarray, labels: list[str]) -> list[str]:
@@ -248,6 +260,114 @@ def get_graph_description() -> dict[str, Any]:
         "nodes": _current_labels,
         "graph_dot": _current_graph_dot,
     }
+
+
+def visualize_graph(save_path: str = "causal_graph.png") -> dict[str, Any]:
+    """
+    Draw the last discovered causal graph with NetworkX and save as a PNG.
+
+    Args:
+        save_path: Filename or path for the image (default: causal_graph.png in project root).
+
+    Returns:
+        ok, path where the image was saved, or error.
+    """
+    global _current_labels, _current_edges, _current_method
+
+    if _current_edges is None or _current_labels is None:
+        return {"ok": False, "error": "No graph yet. Run run_causal_discovery(method) first."}
+
+    try:
+        import networkx as nx
+        import matplotlib.pyplot as plt
+        from pathlib import Path
+
+        G = nx.DiGraph()
+        G.add_nodes_from(_current_labels)
+        directed_edges: list[tuple[str, str]] = []
+        undirected_edges: list[tuple[str, str]] = []
+        bidirected_edges: list[tuple[str, str]] = []
+        seen_undirected = set()
+        seen_bidirected = set()
+        for u, v, etype in _current_edges:
+            if etype == "directed":
+                directed_edges.append((u, v))
+                G.add_edge(u, v)
+            elif etype == "undirected":
+                key = (min(u, v), max(u, v))
+                if key not in seen_undirected:
+                    seen_undirected.add(key)
+                    undirected_edges.append((u, v))
+                    G.add_edge(u, v)
+                    G.add_edge(v, u)
+            elif etype == "bidirected":
+                key = (min(u, v), max(u, v))
+                if key not in seen_bidirected:
+                    seen_bidirected.add(key)
+                    bidirected_edges.append((u, v))
+                    G.add_edge(u, v)
+                    G.add_edge(v, u)
+
+        # Resolve save path to project root if relative (calm/tools/discovery.py -> project root)
+        p = Path(save_path)
+        if not p.is_absolute():
+            _root = Path(__file__).resolve().parent.parent.parent  # tools -> calm -> project
+            p = _root / save_path
+        p = p.with_suffix(".png")
+        save_path = str(p)
+
+        # Layout: use shell or hierarchical for DAGs, spring for general
+        if len(undirected_edges) == 0 and len(bidirected_edges) == 0 and nx.is_directed_acyclic_graph(G):
+            pos = nx.spring_layout(G, k=2.0, seed=42, iterations=50)
+        else:
+            pos = nx.spring_layout(G, k=1.5, seed=42, iterations=80)
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+        ax.set_facecolor("#f8f9fa")
+        fig.patch.set_facecolor("white")
+
+        # Draw undirected as simple lines (no arrows)
+        nx.draw_networkx_edges(
+            G, pos,
+            edgelist=undirected_edges,
+            edge_color="#6c757d", width=2, alpha=0.8, ax=ax,
+            connectionstyle="arc3,rad=0.1",
+        )
+        # Draw bidirected (one arc per pair)
+        nx.draw_networkx_edges(
+            G, pos,
+            edgelist=bidirected_edges,
+            edge_color="#9b59b6", width=2, alpha=0.8, ax=ax,
+            connectionstyle="arc3,rad=0.2",
+        )
+        # Draw directed edges (arrows)
+        nx.draw_networkx_edges(
+            G, pos,
+            edgelist=directed_edges,
+            edge_color="#2c3e50", width=2.5, alpha=0.9, ax=ax,
+            arrows=True, arrowsize=22, arrowstyle="-|>", connectionstyle="arc3,rad=0.1",
+        )
+
+        # Nodes: soft gradient feel
+        node_colors = ["#3498db"] * G.number_of_nodes()
+        nx.draw_networkx_nodes(
+            G, pos, node_color=node_colors, node_size=2800,
+            alpha=0.95, edgecolors="#2c3e50", linewidths=2, ax=ax,
+        )
+        nx.draw_networkx_labels(
+            G, pos, font_size=10, font_weight="600", font_family="sans-serif",
+            ax=ax,
+        )
+
+        ax.set_title(f"Causal graph ({_current_method or 'discovery'})", fontsize=14, fontweight="bold")
+        ax.axis("off")
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=150, bbox_inches="tight", facecolor="white")
+        plt.close()
+
+        return {"ok": True, "path": save_path, "message": f"Graph saved to {save_path}"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 def estimate_effect(treatment: str, outcome: str) -> dict[str, Any]:
